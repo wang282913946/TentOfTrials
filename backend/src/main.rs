@@ -54,16 +54,34 @@ async fn main() -> Result<()> {
 
     tracing::info!("all subsystems initialized successfully, entering main loop");
 
-    let mut signal = tokio::signal::unix::signal(
-        tokio::signal::unix::SignalKind::terminate(),
-    )?;
+    // SIGTERM is a Unix-only concept. On Windows, the closest equivalent
+    // is a Ctrl-C / Ctrl-Break console event, which tokio surfaces as
+    // `tokio::signal::ctrl_c()`. Gate the Unix variant behind `cfg(unix)`
+    // so the binary still compiles on Windows hosts (issue: main.rs did
+    // not compile on Windows because `tokio::signal::unix::*` is gated by
+    // `#![cfg(unix)]` inside tokio itself).
+    #[cfg(unix)]
+    {
+        let mut signal = tokio::signal::unix::signal(
+            tokio::signal::unix::SignalKind::terminate(),
+        )?;
 
-    tokio::select! {
-        _ = signal.recv() => {
-            tracing::info!("received SIGTERM, initiating graceful shutdown");
+        tokio::select! {
+            _ = signal.recv() => {
+                tracing::info!("received SIGTERM, initiating graceful shutdown");
+            }
+            _ = tokio::signal::ctrl_c() => {
+                tracing::info!("received SIGINT, initiating graceful shutdown");
+            }
         }
-        _ = tokio::signal::ctrl_c() => {
-            tracing::info!("received SIGINT, initiating graceful shutdown");
+    }
+
+    #[cfg(not(unix))]
+    {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                tracing::info!("received Ctrl-C, initiating graceful shutdown");
+            }
         }
     }
 
