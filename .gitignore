@@ -7,6 +7,14 @@ frontend/node_modules/
 frontend/dist/
 .npm/
 
+# Diagnostic bundles are produced by `python3 build.py`. The 5+ GiB
+# encrypted logd artifacts and the matching JSON metadata should be
+# generated per-build and uploaded via the PR description, not
+# committed to the repo. Existing diagnostic/ entries in git history
+# predate this rule and stay in the tree until they are removed.
+diagnostic/
+tmp/
+
 # Go
 market/market
 go/
