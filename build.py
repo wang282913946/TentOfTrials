@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 
 import argparse
 import datetime
@@ -307,7 +307,7 @@ def build_module(
     verbose: bool = False,
 ) -> tuple[bool, float, str]:
 
-    print(f"\n  {color('▸', Colors.CYAN)} Building {color(module.name, Colors.BOLD)} ({module.language})...")
+    print(f"\n  {color('>', Colors.CYAN)} Building {color(module.name, Colors.BOLD)} ({module.language})...")
 
     env = os.environ.copy()
     if module.env:
@@ -398,7 +398,7 @@ def build_module(
     return success, elapsed, output
 
 def clean_module(module: Module, verbose: bool = False) -> bool:
-    print(f"  {color('▸', Colors.YELLOW)} Cleaning {module.name}...")
+    print(f"  {color('>', Colors.YELLOW)} Cleaning {module.name}...")
     try:
         subprocess.run(
             module.clean_cmd,
@@ -410,7 +410,7 @@ def clean_module(module: Module, verbose: bool = False) -> bool:
         )
         return True
     except Exception as e:
-        print(f"    {color('✗', Colors.RED)} Clean failed: {e}")
+        print(f"    {color('[X]', Colors.RED)} Clean failed: {e}")
         return False
 
 def verify_binary(module: Module) -> Optional[str]:
@@ -540,14 +540,14 @@ def build_diagnostic_report(
 
 def write_diagnostic_report(metadata_path: Path, report: dict) -> None:
     metadata_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-    print(f"    {color('✓', Colors.GREEN)} {metadata_path.relative_to(ROOT)} created")
+    print(f"    {color('[OK]', Colors.GREEN)} {metadata_path.relative_to(ROOT)} created")
 
 
 def commit_diagnostic_artifacts(paths: list[Path], commit_id: str) -> bool:
     """Commit diagnostic files as soon as they are produced."""
     existing = [path for path in paths if path.exists()]
     if not existing:
-        print(f"    {color('✗', Colors.RED)} No diagnostic artifacts found to commit")
+        print(f"    {color('[X]', Colors.RED)} No diagnostic artifacts found to commit")
         return False
 
     relpaths = [str(path.relative_to(ROOT)) for path in existing]
@@ -559,10 +559,10 @@ def commit_diagnostic_artifacts(paths: list[Path], commit_id: str) -> bool:
         timeout=300,
     )
     if status.returncode != 0:
-        print(f"    {color('✗', Colors.RED)} Could not inspect diagnostic git status: {status.stderr.strip()}")
+        print(f"    {color('[X]', Colors.RED)} Could not inspect diagnostic git status: {status.stderr.strip()}")
         return False
     if not status.stdout.strip():
-        print(f"    {color('✓', Colors.GREEN)} Diagnostic artifacts already committed")
+        print(f"    {color('[OK]', Colors.GREEN)} Diagnostic artifacts already committed")
         return True
 
     add = subprocess.run(
@@ -573,7 +573,7 @@ def commit_diagnostic_artifacts(paths: list[Path], commit_id: str) -> bool:
         timeout=30,
     )
     if add.returncode != 0:
-        print(f"    {color('✗', Colors.RED)} Could not stage diagnostic artifacts: {add.stderr.strip()}")
+        print(f"    {color('[X]', Colors.RED)} Could not stage diagnostic artifacts: {add.stderr.strip()}")
         return False
 
     commit = subprocess.run(
@@ -585,10 +585,10 @@ def commit_diagnostic_artifacts(paths: list[Path], commit_id: str) -> bool:
     )
     if commit.returncode != 0:
         output = commit.stderr.strip() or commit.stdout.strip()
-        print(f"    {color('✗', Colors.RED)} Could not commit diagnostic artifacts: {output}")
+        print(f"    {color('[X]', Colors.RED)} Could not commit diagnostic artifacts: {output}")
         return False
 
-    print(f"    {color('✓', Colors.GREEN)} Diagnostic artifacts committed")
+    print(f"    {color('[OK]', Colors.GREEN)} Diagnostic artifacts committed")
     return True
 
 
@@ -598,7 +598,7 @@ def generate_logd(
 ) -> bool:
     logd_path, metadata_path, commit_id = diagnostic_paths_for_commit()
     display_logd = logd_path.relative_to(ROOT)
-    print(f"\n  {color('▸', Colors.CYAN)} Finalizing diagnostics for {color(str(display_logd), Colors.BOLD)}...")
+    print(f"\n  {color('>', Colors.CYAN)} Finalizing diagnostics for {color(str(display_logd), Colors.BOLD)}...")
 
     # Always write the JSON report first. The encrypted .logd is useful, but the
     # report is required even when the build failed before compilation started or
@@ -608,7 +608,7 @@ def generate_logd(
     encryptly_bin = get_encryptly_bin()
     if encryptly_bin is None:
         error = f"encryptly binary not found ({encryptly_platform_help()}); cannot create {display_logd}"
-        print(f"    {color('✗', Colors.RED)} {error}")
+        print(f"    {color('[X]', Colors.RED)} {error}")
         write_diagnostic_report(
             metadata_path,
             build_diagnostic_report(
@@ -684,7 +684,7 @@ def generate_logd(
         if sr.returncode != 0:
             error = sr.stderr.strip() or sr.stdout.strip() or "encryptly pack failed"
             print(
-                f"    {color('✗', Colors.RED)} {logd_path.relative_to(ROOT)} creation failed: "
+                f"    {color('[X]', Colors.RED)} {logd_path.relative_to(ROOT)} creation failed: "
                 f"{error}"
             )
             if logd_path.exists():
@@ -720,12 +720,12 @@ def generate_logd(
         for path in logd_files:
             size_kb = path.stat().st_size / 1024.0
             print(
-                f"    {color('✓', Colors.GREEN)} {path.relative_to(ROOT)} created "
+                f"    {color('[OK]', Colors.GREEN)} {path.relative_to(ROOT)} created "
                 f"({size_kb:.1f} KiB)"
             )
         if len(logd_files) > 1:
             print(
-                f"    {color('✓', Colors.GREEN)} split oversized diagnostic log into "
+                f"    {color('[OK]', Colors.GREEN)} split oversized diagnostic log into "
                 f"{len(logd_files)} chunks of at most {DIAGNOSTIC_CHUNK_SIZE // (1024 * 1024)} MiB"
             )
         if not commit_diagnostic_artifacts([metadata_path, *logd_files], commit_id):
@@ -756,7 +756,7 @@ def print_summary(results: list[tuple[str, bool, float, str, Optional[str]]]):
     total_time = sum(t for _, _, t, _, _ in results)
 
     for name, success, elapsed, output, binary in results:
-        status_icon = color("✓", Colors.GREEN) if success else color("✗", Colors.RED)
+        status_icon = color("[OK]", Colors.GREEN) if success else color("[X]", Colors.RED)
         status_text = color("PASS", Colors.GREEN) if success else color("FAIL", Colors.RED)
         time_str = f"{elapsed:.1f}s" if elapsed < 60 else f"{elapsed / 60:.1f}m"
 
@@ -814,6 +814,10 @@ Diagnostic bundle:
         "--list", action="store_true",
         help="List available modules and exit",
     )
+    parser.add_argument(
+        "--list-modules", action="store_true",
+        help="List modules with language, directory, and build command",
+    )
 
     args = parser.parse_args()
 
@@ -829,27 +833,42 @@ Diagnostic bundle:
             print(f"      build: {' '.join(m.build_cmd)}")
         return 0
 
+    if args.list_modules:
+        print(f"  {color('Module Reference:', Colors.BOLD)}")
+        print(f"  {'Name':<25} {'Language':<12} {'Directory':<30} {'Build Command'}")
+        print(f"  {'-'*25} {'-'*12} {'-'*30} {'-'*40}")
+        for m in MODULES:
+            build_short = ' '.join(m.build_cmd[:2])
+            if len(m.build_cmd) > 2:
+                build_short += "..."
+            print(f"  {color(m.name, Colors.CYAN):<25} {m.language:<12} {str(m.dir.relative_to(ROOT)):<30} {build_short}")
+        return 0
+
     print(f"  {color('Checking prerequisites...', Colors.GRAY)}")
     missing = check_prerequisites()
     if missing:
-        print(f"\n  {color('⚠ Some tools missing  -  will try anyway:', Colors.YELLOW)}")
+        print(f"\n  {color('[WARN] Some tools missing  -  will try anyway:', Colors.YELLOW)}")
         for m in missing:
             print(f"    {m}")
 
         msg = "Not all modules will build. That's fine."
         print(f"  {color(msg, Colors.GRAY)}")
     else:
-        print(f"  {color('✓ All prerequisites found', Colors.GREEN)}")
+        print(f"  {color('[OK] All prerequisites found', Colors.GREEN)}")
     if args.module == "all":
         selected = MODULES
     else:
         names = [n.strip() for n in args.module.split(",")]
-        selected = [m for m in MODULES if m.name in names]
-        not_found = set(names) - {m.name for m in MODULES}
-        if not_found:
-            print(f"  {color('✗ Unknown modules:', Colors.RED)} {', '.join(not_found)}")
-            print(f"    Available: {', '.join(m.name for m in MODULES)}")
+        # Validate ALL module names before proceeding (#225 bounty)
+        valid_names = {m.name for m in MODULES}
+        invalid_names = [n for n in names if n not in valid_names]
+        if invalid_names:
+            print(f"  {color('[X] Invalid module(s):', Colors.RED)} {', '.join(invalid_names)}")
+            print(f"\n  {color('Valid modules:', Colors.GREEN)}")
+            for m in MODULES:
+                print(f"    {color(m.name, Colors.CYAN)} ({m.language}) - {m.build_cmd[0]} {m.build_cmd[1] if len(m.build_cmd) > 1 else ''}")
             return 1
+        selected = [m for m in MODULES if m.name in names]
 
     if not selected:
         print(f"  No modules selected.")
@@ -872,7 +891,7 @@ Diagnostic bundle:
                     shutil.rmtree(artifact)
                 else:
                     artifact.unlink()
-                print(f"  {color('▸', Colors.YELLOW)} Removed {artifact.relative_to(ROOT)}")
+                print(f"  {color('>', Colors.YELLOW)} Removed {artifact.relative_to(ROOT)}")
         print(f"\n  {color('Clean complete.', Colors.GREEN)}")
         return 0
 
@@ -882,12 +901,12 @@ Diagnostic bundle:
     if not encryptly_ok:
         elapsed = time.time() - encryptly_start
         blocker = f"{ENCRYPTLY_BLOCKER_MESSAGE} {encryptly_message}"
-        print(f"  {color('✗ encryptly cannot run', Colors.RED)}")
+        print(f"  {color('[X] encryptly cannot run', Colors.RED)}")
         print(f"  {color('BLOCKER:', Colors.RED)} {blocker}")
         results = [("encryptly-preflight", False, elapsed, blocker, None)]
         generate_logd(results, args.verbose)
         return 1
-    print(f"  {color('✓ encryptly runs', Colors.GREEN)}")
+    print(f"  {color('[OK] encryptly runs', Colors.GREEN)}")
 
     print(f"\n  {color(f'Building {len(selected)} module(s) | release={args.release}', Colors.GRAY)}")
 
@@ -906,3 +925,5 @@ Diagnostic bundle:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
