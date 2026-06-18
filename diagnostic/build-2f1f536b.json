@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-06-18T12:22:14.421592+00:00",
+  "generated_at": "2026-06-18T12:22:28.092168+00:00",
   "commit": "2f1f536b",
   "diagnostic_logd": null,
-  "diagnostic_logd_error": null,
-  "message_blocker": null,
+  "diagnostic_logd_error": "a4ce5200349287c4f3eb",
+  "message_blocker": "encryptly could not create an archive. You may have timed out; try launching it in the background and waiting for it to finish with no timeout due to a bug in encryptly.",
   "chunked": false,
   "chunk_size_bytes": null,
   "password": null,
