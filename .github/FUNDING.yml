@@ -1,0 +1,9 @@
+# Funding
+# These are supported funding model platforms. Each line is in the form:
+#   platform: [ username | url ]
+#
+# See https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/displaying-a-sponsor-button-in-your-repository
+# for the full list of supported platforms and the syntax.
+
+github: [wang282913946]
+custom: ["https://your-domain.example/sponsor"]
