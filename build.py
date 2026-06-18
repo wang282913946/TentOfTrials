@@ -223,8 +223,44 @@ def encryptly_platform_help() -> str:
     return f"detected {detected}; available: {available}"
 
 
-def check_encryptly_runs(timeout: int = 600) -> tuple[bool, str]:
-    """Verify encryptly can create a diagnostic bundle before doing any build work."""
+def _kill_process_tree(pid: int) -> None:
+    """Best-effort: kill `pid` and any descendants.
+
+    subprocess.run's `timeout=` only kills the immediate child; on
+    Windows encryptly can spawn helper processes that keep the
+    workspace lock held and cause subsequent runs to hang. taskkill
+    with /T walks the process tree, /F forces termination.
+    """
+    if pid is None or pid <= 0:
+        return
+    if sys.platform == "win32":
+        try:
+            subprocess.run(
+                ["taskkill", "/T", "/F", "/PID", str(pid)],
+                capture_output=True,
+                timeout=10,
+            )
+        except Exception:
+            pass
+    else:
+        try:
+            os.killpg(os.getpgid(pid), 9)
+        except Exception:
+            try:
+                os.kill(pid, 9)
+            except Exception:
+                pass
+
+
+def check_encryptly_runs(timeout: int = 60) -> tuple[bool, str]:
+    """Verify encryptly can create a diagnostic bundle before doing any build work.
+
+    On Windows, the preflight is bounded to 60s by default and the
+    process tree is force-killed on timeout so the next run does not
+    wait on a stale encryptly.exe holding the workspace lock. This
+    unblocks `python3 build.py` even when encryptly is the known
+    buggy release called out in ENCRYPTLY_BLOCKER_MESSAGE.
+    """
     encryptly_bin = get_encryptly_bin()
     if encryptly_bin is None:
         return False, f"encryptly binary not found ({encryptly_platform_help()})"
@@ -232,11 +268,19 @@ def check_encryptly_runs(timeout: int = 600) -> tuple[bool, str]:
     workspace = Path.home() / ".cache" / "tent-of-trials" / "encryptly-preflight"
     safe_dir = workspace / "safe"
     logd_path = workspace / "preflight.logd"
+    popen: Optional[subprocess.Popen] = None
     try:
         shutil.rmtree(workspace, ignore_errors=True)
         safe_dir.mkdir(parents=True, exist_ok=True)
         (safe_dir / "preflight.txt").write_text("encryptly preflight, if it fails, increase your timeout\n", encoding="utf-8")
-        result = subprocess.run(
+        # Use Popen + manual kill so we can take down the entire process
+        # tree on Windows. subprocess.run(timeout=...) only kills the
+        # immediate child, leaving helper processes around to hold
+        # file locks.
+        creationflags = 0
+        if sys.platform == "win32":
+            creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        popen = subprocess.Popen(
             [
                 str(encryptly_bin),
                 "pack",
@@ -247,21 +291,33 @@ def check_encryptly_runs(timeout: int = 600) -> tuple[bool, str]:
                 "32000",
             ],
             cwd=str(ROOT),
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout,
+            creationflags=creationflags,
         )
-        # if result.returncode != 0:
-        #     output = result.stderr.strip() or result.stdout.strip() or "encryptly pack preflight failed"
-        #     return False, output
+        try:
+            stdout, stderr = popen.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _kill_process_tree(popen.pid)
+            try:
+                popen.wait(timeout=5)
+            except Exception:
+                pass
+            return False, f"encryptly preflight TIMEOUT ({timeout}s) - killed process tree"
+        if popen.returncode != 0:
+            output = (stderr or "").strip() or (stdout or "").strip() or "encryptly pack preflight failed"
+            return False, output
         if not logd_path.exists():
             return False, "encryptly preflight completed without creating a .logd"
         return True, "encryptly preflight passed"
-    except subprocess.TimeoutExpired:
-        return False, f"encryptly preflight TIMEOUT ({timeout}s)"
     except Exception as e:
+        if popen is not None and popen.poll() is None:
+            _kill_process_tree(popen.pid)
         return False, str(e)
     finally:
+        if popen is not None and popen.poll() is None:
+            _kill_process_tree(popen.pid)
         shutil.rmtree(workspace, ignore_errors=True)
 
 class Colors:
@@ -816,6 +872,16 @@ Diagnostic bundle:
     )
 
     args = parser.parse_args()
+
+    # Initialise the emergency-dump bookkeeping as early as possible so an
+    # unexpected exception or a hard encryptly failure still produces a
+    # diagnostic JSON (issue #67: Windows build diagnostics).
+    global _PENDING_COMMIT_ID
+    if _PENDING_COMMIT_ID is None:
+        try:
+            _PENDING_COMMIT_ID = current_commit_id()
+        except Exception:
+            _PENDING_COMMIT_ID = "00000000"
 
     print(f"\n  {color('Tent of Trials: building', Colors.CYAN)}")
     print(f"  Working directory: {ROOT}")
