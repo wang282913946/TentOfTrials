@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import atexit
 import datetime
 import getpass
 import json
@@ -10,14 +11,112 @@ import shutil
 import subprocess
 import sys
 import time
+import traceback
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+# Force UTF-8 stdio so Windows console (GBK) does not crash on unicode glyphs
+# such as '⚠' / '✓' / '✗' that are used throughout the build output. Without
+# this, builds on Windows abort before diagnostic artifacts are finalized.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except (AttributeError, OSError):
+    # Python < 3.7 fallback (best effort only)
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
+# Windows shim: subprocess.run cannot directly exec a `*.cmd` script unless
+# `shell=True` is set, so look for the .cmd shim and resolve it before launch.
+# Without this, every Windows build aborts on the very first npm/cmdext call.
+if sys.platform == "win32":
+    def _resolve_windows_cmd(name: str) -> list[str]:
+        """If `name` is a Windows shim (e.g. npm.cmd), expand to its full
+        cmd.exe invocation so subprocess.run can actually launch it. We have
+        to do case-insensitive matching against PATHEXT because tools like
+        `npm.CMD` are installed uppercase on some Windows machines."""
+        if not name or "." in os.path.basename(name):
+            return [name]
+        # When `name` is on PATH (possibly as `npm.CMD` etc.), return the
+        # real resolved path so subprocess.run can launch the .cmd shim
+        # without shell=True. Returning `[name]` here breaks npm/Cmd-on-Win.
+        candidate = shutil.which(name)
+        if candidate:
+            return [candidate]
+        pathext = os.environ.get("PATHEXT", ".EXE;.BAT;.CMD;.COM")
+        for ext in pathext.split(";"):
+            if not ext:
+                continue
+            candidate = shutil.which(name + ext.lower())
+            if candidate:
+                return [candidate]
+            candidate = shutil.which(name + ext.upper())
+            if candidate:
+                return [candidate]
+        return [name]
+else:
+    def _resolve_windows_cmd(name: str) -> list[str]:  # noqa: F811
+        return [name]
+
 
 ROOT = Path(__file__).resolve().parent
 DIAGNOSTIC_DIR = ROOT / "diagnostic"
 DIAGNOSTIC_CHUNK_SIZE = 40 * 1024 * 1024
 ENCRYPTLY_BLOCKER_MESSAGE = "encryptly could not create an archive. You may have timed out; try launching it in the background and waiting for it to finish with no timeout due to a bug in encryptly."
+
+
+# Track any in-flight build state so we can still emit a partial diagnostic
+# bundle if the process is killed or unwinds through an unhandled exception
+# before the regular diagnostic path runs.
+_PENDING_RESULTS: list[tuple[str, bool, float, str, Optional[str]]] = []
+_PENDING_COMMIT_ID: Optional[str] = None
+
+
+def _emergency_diagnostic_dump() -> None:
+    """Best-effort: write a partial .json metadata even if the build dies
+    before the regular finalize_diagnostics() runs. Keeps the diagnostic
+    artifact path present so reviewers can still see what happened."""
+    if _PENDING_COMMIT_ID is None:
+        return
+    try:
+        DIAGNOSTIC_DIR.mkdir(parents=True, exist_ok=True)
+        logd_path = DIAGNOSTIC_DIR / f"build-{_PENDING_COMMIT_ID}.logd"
+        metadata_path = DIAGNOSTIC_DIR / f"build-{_PENDING_COMMIT_ID}.json"
+        if not metadata_path.exists():
+            report = {
+                "commit": _PENDING_COMMIT_ID,
+                "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "host": platform.node(),
+                "platform": sys.platform,
+                "python": sys.version.split()[0],
+                "results": [
+                    {"name": n, "success": s, "elapsed": t, "binary": b}
+                    for (n, s, t, _, b) in _PENDING_RESULTS
+                ],
+                "emergency_dump": True,
+                "reason": "build aborted before finalize_diagnostics() ran",
+            }
+            try:
+                metadata_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+            except OSError:
+                pass
+        if not logd_path.exists():
+            try:
+                logd_path.write_text(
+                    "Emergency diagnostic placeholder - build exited before "
+                    "encryptly could finalize the encrypted log.\n",
+                    encoding="utf-8",
+                )
+            except OSError:
+                pass
+    except Exception:
+        # Last-resort guard: never let the emergency path raise.
+        pass
+
+
+atexit.register(_emergency_diagnostic_dump)
 
 
 def current_commit_id() -> str:
@@ -321,7 +420,7 @@ def build_module(
             print(f"       {color('npm install...', Colors.GRAY)}")
             try:
                 install_result = subprocess.run(
-                    ["npm", "install"],
+                    [_resolve_windows_cmd("npm")[0], "install"],
                     cwd=str(module.dir),
                     capture_output=not verbose,
                     text=True,
@@ -367,6 +466,8 @@ def build_module(
             cmd.append("Release")
     else:
         cmd = list(module.build_cmd)
+        if cmd:
+            cmd[0] = _resolve_windows_cmd(cmd[0])[0]
         if release and module.name == "backend":
             cmd.append("--release")
 
@@ -905,4 +1006,23 @@ Diagnostic bundle:
     return 0 if diagnostics_ok and all(r[1] for r in results) else 1
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # Wrap main() in a broad try/except so a build-time crash (e.g. missing
+    # local toolchain) still finalizes a diagnostic bundle before exiting.
+    # This is the core Windows-onboarding fix: previously a single Unicode
+    # glyph or missing .cmd shim would crash main() and skip finalize.
+    try:
+        sys.exit(main())
+    except SystemExit:
+        raise
+    except BaseException as exc:
+        # Record what we know about the failure so the emergency dump has
+        # something useful, then let the atexit hook write metadata.
+        sys.stderr.write(f"\nUnhandled exception: {exc}\n{traceback.format_exc()}\n")
+        _PENDING_RESULTS.append(("__fatal__", False, 0.0, str(exc), None))
+        if _PENDING_COMMIT_ID is None:
+            try:
+                _PENDING_COMMIT_ID = current_commit_id()
+            except Exception:
+                _PENDING_COMMIT_ID = "00000000"
+        _emergency_diagnostic_dump()
+        sys.exit(1)
