@@ -1,0 +1,39 @@
+{
+  "generated_at": "2026-06-19T02:22:58.261143+00:00",
+  "commit": "5526695c",
+  "diagnostic_logd": [
+    "diagnostic\\build-5526695c-part001.logd",
+    "diagnostic\\build-5526695c-part002.logd",
+    "diagnostic\\build-5526695c-part003.logd",
+    "diagnostic\\build-5526695c-part004.logd",
+    "diagnostic\\build-5526695c-part005.logd",
+    "diagnostic\\build-5526695c-part006.logd",
+    "diagnostic\\build-5526695c-part007.logd",
+    "diagnostic\\build-5526695c-part008.logd",
+    "diagnostic\\build-5526695c-part009.logd",
+    "diagnostic\\build-5526695c-part010.logd",
+    "diagnostic\\build-5526695c-part011.logd",
+    "diagnostic\\build-5526695c-part012.logd",
+    "diagnostic\\build-5526695c-part013.logd",
+    "diagnostic\\build-5526695c-part014.logd"
+  ],
+  "diagnostic_logd_error": null,
+  "message_blocker": null,
+  "chunked": true,
+  "chunk_size_bytes": 41943040,
+  "password": "23893f10201a30abd0c9",
+  "decrypt_command": "encryptly unpack diagnostic\\build-5526695c.logd <outdir> --password 23893f10201a30abd0c9",
+  "total_modules": 1,
+  "passed": 0,
+  "failed": 1,
+  "modules": [
+    {
+      "name": "compliance",
+      "status": "FAIL",
+      "elapsed_seconds": 0,
+      "artifact": null,
+      "output": "Command not found: [WinError 2] \u7cfb\u7edf\u627e\u4e0d\u5230\u6307\u5b9a\u7684\u6587\u4ef6\u3002"
+    }
+  ],
+  "pr_note": "Include the encrypted diagnostic logd artifact(s): diagnostic\\build-5526695c-part001.logd, diagnostic\\build-5526695c-part002.logd, diagnostic\\build-5526695c-part003.logd, diagnostic\\build-5526695c-part004.logd, diagnostic\\build-5526695c-part005.logd, diagnostic\\build-5526695c-part006.logd, diagnostic\\build-5526695c-part007.logd, diagnostic\\build-5526695c-part008.logd, diagnostic\\build-5526695c-part009.logd, diagnostic\\build-5526695c-part010.logd, diagnostic\\build-5526695c-part011.logd, diagnostic\\build-5526695c-part012.logd, diagnostic\\build-5526695c-part013.logd, diagnostic\\build-5526695c-part014.logd. The encrypted .logd is the required diagnostic content for PR review; this JSON file is metadata. Maintainers may ask you to remove these diagnostic artifacts before merging."
+}
